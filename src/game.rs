@@ -1,10 +1,12 @@
 use macroquad::prelude::*;
 
 use crate::{
-    ball::Ball,
-    block::{Block, BLOCK_SIZE},
+    ball::{Ball, BALL_SIZE},
+    block::{Block, Blocktype, BLOCK_SIZE},
     player::Player,
 };
+
+const MAX_SPECIAL_BLOCK: usize = 3;
 
 #[derive(Default)]
 pub enum GameState {
@@ -32,7 +34,10 @@ impl Game {
         self.player = Player::default();
 
         self.balls = vec![(Ball::new(vec2(screen_width() * 0.5, screen_height() * 0.5)))];
+        self.init_blocks();
+    }
 
+    fn init_blocks(&mut self) {
         let mut blocks = Vec::new();
         let (width, height) = (6, 6);
         let padding = 5.0;
@@ -44,8 +49,17 @@ impl Game {
         for i in 0..width * height {
             let block_x = (i % width) as f32 * total_block_size.x;
             let block_y = (i / width) as f32 * total_block_size.y;
-            blocks.push(Block::new(board_start_pos + vec2(block_x, block_y)));
+            blocks.push(Block::new(
+                board_start_pos + vec2(block_x, block_y),
+                Blocktype::Regular,
+            ));
         }
+
+        for _ in 0..MAX_SPECIAL_BLOCK {
+            let rand_index = rand::gen_range(0, blocks.len());
+            blocks[rand_index].block_type = Blocktype::SpawnBallOnDeath;
+        }
+
         self.blocks = blocks;
     }
 
@@ -60,10 +74,10 @@ impl Game {
                     }
                 }
                 GameState::Playing => {
-                    if is_key_pressed(KeyCode::Space) {
-                        self.balls
-                            .push(Ball::new(vec2(screen_width() * 0.5, screen_height() * 0.5)));
-                    }
+                    // if is_key_pressed(KeyCode::Space) {
+                    //     self.balls
+                    //         .push(Ball::new(vec2(screen_width() * 0.5, screen_height() * 0.5)));
+                    // }
 
                     self.player.update(get_frame_time());
                     for ball in self.balls.iter_mut() {
@@ -114,6 +128,7 @@ impl Game {
     }
 
     fn collison_handle(&mut self) {
+        let mut spawn_later = vec![];
         for ball in self.balls.iter_mut() {
             resolve_collison(&mut ball.rect, &mut ball.vel, &self.player.rect);
 
@@ -122,19 +137,30 @@ impl Game {
                     block.lives -= 1;
                     if block.lives <= 0 {
                         self.score += 10;
+                        if block.block_type == Blocktype::SpawnBallOnDeath {
+                            spawn_later.push(Ball::new(ball.rect.point()));
+                        }
                     }
                 }
             }
+        }
+
+        for ball in spawn_later.into_iter() {
+            self.balls.push(ball);
         }
     }
 
     fn remove_balls(&mut self) {
         let balls_len = self.balls.len();
-        let was_last_ball = balls_len == 1;
         self.balls.retain(|ball| ball.rect.y < screen_height());
         let remove_balls = balls_len - self.balls.len();
-        if remove_balls > 0 && was_last_ball {
+        if remove_balls > 0 && self.balls.is_empty() {
             self.player_lives -= 1;
+            // To position the newly spawned ball in the center of Player
+            let player_center = self.player.rect.w * 0.5 + BALL_SIZE * 0.5;
+            self.balls.push(Ball::new(
+                self.player.rect.point() + vec2(player_center, -50.),
+            ));
             if self.player_lives <= 0 {
                 self.state = GameState::Dead;
             }
