@@ -7,8 +7,8 @@ pub struct Player {
     pub rect: Rect,
 }
 
-impl Player {
-    pub fn new() -> Self {
+impl Default for Player {
+    fn default() -> Self {
         Self {
             rect: Rect::new(
                 screen_width() * 0.5 - PLAYER_SIZE.x * 0.5,
@@ -18,7 +18,9 @@ impl Player {
             ),
         }
     }
+}
 
+impl Player {
     pub fn draw(&self) {
         draw_rectangle(self.rect.x, self.rect.y, self.rect.w, self.rect.h, DARKGRAY);
     }

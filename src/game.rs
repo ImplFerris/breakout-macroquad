@@ -6,50 +6,33 @@ use crate::{
     player::Player,
 };
 
+#[derive(Default)]
 pub enum GameState {
+    #[default]
     Menu,
-    Game,
+    Playing,
     LevelCompleted,
     Dead,
 }
 
-pub fn resolve_collison(a: &mut Rect, vel: &mut Vec2, b: &Rect) -> bool {
-    let Some(intersection) = a.intersect(*b) else {
-        return false;
-    };
-
-    let a_center = a.center();
-    let b_center = b.center();
-    let to = b_center - a_center;
-    let to_signum = to.signum();
-
-    if intersection.w > intersection.h {
-        a.y -= to_signum.y * intersection.h;
-        match to_signum.y > 0.0 {
-            true => vel.y = -vel.y.abs(),
-            false => vel.y = vel.y.abs(),
-        };
-    } else {
-        a.x -= to_signum.x * intersection.w;
-        match to_signum.x > 0.0 {
-            true => vel.x = vel.x.abs(),
-            false => vel.x = -vel.x.abs(),
-        }
-    }
-
-    true
-}
-
+#[derive(Default)]
 pub struct Game {
+    state: GameState,
     score: u32,
-    player_lives: u8,
+    player_lives: i8,
     player: Player,
     balls: Vec<Ball>,
     blocks: Vec<Block>,
 }
 
-impl Default for Game {
-    fn default() -> Self {
+impl Game {
+    pub fn reset_game(&mut self) {
+        self.player_lives = 3;
+        self.score = 0;
+        self.player = Player::default();
+
+        self.balls = vec![(Ball::new(vec2(screen_width() * 0.5, screen_height() * 0.5)))];
+
         let mut blocks = Vec::new();
         let (width, height) = (6, 6);
         let padding = 5.0;
@@ -63,43 +46,61 @@ impl Default for Game {
             let block_y = (i / width) as f32 * total_block_size.y;
             blocks.push(Block::new(board_start_pos + vec2(block_x, block_y)));
         }
-
-        Self {
-            score: 0,
-            player_lives: 3,
-            player: Player::new(),
-            balls: vec![Ball::new(vec2(screen_width() * 0.5, screen_height() * 0.5))],
-            blocks,
-        }
+        self.blocks = blocks;
     }
-}
 
-impl Game {
     pub async fn start(&mut self) {
+        self.reset_game();
         loop {
-            if is_key_pressed(KeyCode::Space) {
-                self.balls
-                    .push(Ball::new(vec2(screen_width() * 0.5, screen_height() * 0.5)));
+            match self.state {
+                GameState::Menu => {
+                    if is_key_pressed(KeyCode::Space) {
+                        self.reset_game();
+                        self.state = GameState::Playing;
+                    }
+                }
+                GameState::Playing => {
+                    if is_key_pressed(KeyCode::Space) {
+                        self.balls
+                            .push(Ball::new(vec2(screen_width() * 0.5, screen_height() * 0.5)));
+                    }
+
+                    self.player.update(get_frame_time());
+                    for ball in self.balls.iter_mut() {
+                        ball.update(get_frame_time());
+                    }
+
+                    self.collison_handle();
+                    self.remove_balls();
+
+                    self.blocks.retain(|block| block.lives > 0);
+                    if self.blocks.is_empty() {
+                        self.state = GameState::LevelCompleted;
+                    }
+                }
+                _ => {
+                    if is_key_pressed(KeyCode::Space) {
+                        self.state = GameState::Menu;
+                    }
+                }
             }
 
-            self.player.update(get_frame_time());
-            for ball in self.balls.iter_mut() {
-                ball.update(get_frame_time());
+            clear_background(WHITE);
+
+            match self.state {
+                GameState::Menu => draw_title_text("Press SPACE to start..."),
+                GameState::Playing => self.draw_game(),
+                GameState::LevelCompleted => {
+                    draw_title_text(&format!("You win! {} score", self.score))
+                }
+                GameState::Dead => draw_title_text(&format!("You died! {} score", self.score)),
             }
-
-            self.collison_handle();
-            self.remove_balls();
-
-            self.blocks.retain(|block| block.lives > 0);
-
-            self.draw();
 
             next_frame().await;
         }
     }
 
-    fn draw(&self) {
-        clear_background(WHITE);
+    fn draw_game(&self) {
         self.player.draw();
         for block in self.blocks.iter() {
             block.draw();
@@ -134,6 +135,9 @@ impl Game {
         let remove_balls = balls_len - self.balls.len();
         if remove_balls > 0 && was_last_ball {
             self.player_lives -= 1;
+            if self.player_lives <= 0 {
+                self.state = GameState::Dead;
+            }
         }
     }
 
@@ -165,4 +169,45 @@ impl Game {
             },
         );
     }
+}
+
+fn draw_title_text(title: &str) {
+    let dims = measure_text(title, None, 50, 1.0);
+    draw_text_ex(
+        title,
+        screen_width() * 0.5 - dims.width * 0.5,
+        screen_height() * 0.5 - dims.height * 0.5,
+        TextParams {
+            font_size: 50,
+            color: BLACK,
+            ..Default::default()
+        },
+    );
+}
+
+pub fn resolve_collison(a: &mut Rect, vel: &mut Vec2, b: &Rect) -> bool {
+    let Some(intersection) = a.intersect(*b) else {
+        return false;
+    };
+
+    let a_center = a.center();
+    let b_center = b.center();
+    let to = b_center - a_center;
+    let to_signum = to.signum();
+
+    if intersection.w > intersection.h {
+        a.y -= to_signum.y * intersection.h;
+        match to_signum.y > 0.0 {
+            true => vel.y = -vel.y.abs(),
+            false => vel.y = vel.y.abs(),
+        };
+    } else {
+        a.x -= to_signum.x * intersection.w;
+        match to_signum.x > 0.0 {
+            true => vel.x = vel.x.abs(),
+            false => vel.x = -vel.x.abs(),
+        }
+    }
+
+    true
 }
